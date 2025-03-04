@@ -29,6 +29,22 @@ app.get('/bagi/:a/:b', (req, res) => {
     res.send(`Hasil: ${a / b}`);
 });
 
+app.get('/users', (req, res) => {
+    res.send(req.query);
+});
+app.post('/users/:id', (req, res) => {
+    res.send(req.query);
+});
+app.put('/users/:id', (req, res) => {
+    res.send(req.query);
+});
+app.patch('/users/:id', (req, res) => {
+    res.send(req.query);
+});
+app.delete('/users/:id', (req, res) => {
+    res.send(req.query);
+});
+
 app.listen(3000, () => {
     console.log('Server is running on port 3000');
 });
