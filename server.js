@@ -4,8 +4,8 @@ import express from 'express'; // ES Modules
 
 const app = express();
 
-const users = []
-const Tasks = []
+let users = []
+let Tasks = []
 
 app.use(express.json()); // use body parser
 
@@ -106,7 +106,7 @@ app.put('/users/:id', (req, res) => {
         user.role = req.body.role ?? user.role;
 
         res.json({
-            status: 201,
+            status: 200,
             success: true,
             data: users
         });
@@ -126,7 +126,7 @@ app.patch('/users/activate/:id', (req, res) => {
     }else{
         user.is_active = true;
         res.json({
-            status: 201,
+            status: 200,
             success: true,
             data: users
         });
@@ -144,7 +144,7 @@ app.delete('/users/:id', (req, res) => {
             message: "User not found"
         });
     }else{
-        users.splice(users.indexOf(user), 1);
+        users = users.filter(u => u.id !== id);
 
         res.json({
             status: 200,
@@ -243,14 +243,14 @@ app.put('/tasks/:id', (req, res) => {
         task.is_done = req.body.is_done ?? task.is_done;
 
         res.json({
-            status: 201,
+            status: 200,
             success: true,
             data: Tasks
         });
     }
 });
 
-app.patch('/tasks/activate/:id', (req, res) => {
+app.patch('/tasks/done/:id', (req, res) => {
     const id = parseInt(req.params.id);
     const task = Tasks.find(u => u.id === id);
 
@@ -263,7 +263,7 @@ app.patch('/tasks/activate/:id', (req, res) => {
     }else{
         task.is_done = true;
         res.json({
-            status: 201,
+            status: 200,
             success: true,
             data: Tasks
         });
@@ -281,7 +281,7 @@ app.delete('/tasks/:id', (req, res) => {
             message: "Task not found"
         });
     }else{
-        Tasks.splice(Tasks.indexOf(task), 1);
+        Tasks = Tasks.filter(u => u.id !== id);
 
         res.json({
             status: 200,
