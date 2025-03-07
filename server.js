@@ -12,35 +12,35 @@ app.use(express.json()); // use body parser
 
 
 async function connectMySQL() {
-    try {
-        const connection = await mysql.createConnection({
-            host: '103.56.206.121',
-            port: 3306,
-            user: 'mysql',
-            password: 'dP3WdgMV6ppa6plMeBFoQTj2QMrimqNCAuFhA0xmwL7f8DHJecdZ6jipGRfkskqF',
-            database: 'default'
-        });
-        // console.log("Connected to MySQL");
-        return connection;
-    } catch (error) {
-        console.error("Error connecting to MySQL:", error);
-        return null;
-    }
+    // try {
+    const connection = await mysql.createConnection({
+        host: '103.56.206.121',
+        port: 3306,
+        user: 'mysql',
+        password: 'dP3WdgMV6ppa6plMeBFoQTj2QMrimqNCAuFhA0xmwL7f8DHJecdZ6jipGRfkskqF',
+        database: 'default'
+    });
+    // console.log("Connected to MySQL");
+    return connection;
+    // } catch (error) {
+    //     console.error("Error connecting to MySQL:", error);
+    //     return null;
+    // }
 }
 
-// const connection = await connectMySQL();
-app.use(async (req, res, next) => {
-    const connection = await connectMySQL();
-    if (connection) {
-        console.log("Database is connected");
-        // console.log(req.method, req.url);
-        await connection.end(); // Menutup koneksi setelah digunakan
-        next();
-    }else{
-        console.log("Database is not connected");
-        return res.status(500).send("Database is not connected");
-    }
-})
+// // const connection = await connectMySQL();
+// app.use(async (req, res, next) => {
+//     const connection = await connectMySQL();
+//     if (connection) {
+//         console.log("Database is connected");
+//         // console.log(req.method, req.url);
+//         await connection.end(); // Menutup koneksi setelah digunakan
+//         next();
+//     }else{
+//         console.log("Database is not connected");
+//         return res.status(500).send("Database is not connected");
+//     }
+// })
 // global midleware
 app.use((req, res, next) => {
     console.log(`${req.method} ${req.url}`);
@@ -92,8 +92,8 @@ app.get('/bagi/:a/:b', (req, res) => {
  * is_active
  */
 app.get('/users',async (req, res) => {
-    const connection = await connectMySQL();
     try {
+        const connection = await connectMySQL();
         const [users] = await connection.execute('SELECT * FROM users'); 
         // console.log("user data:", users);
         res.json({
@@ -102,19 +102,18 @@ app.get('/users',async (req, res) => {
             data: users
         });
     } catch (error) {
-        console.error("Query error:", error);
-        // return res.json({
-        //     status: 400,
-        //     success: false,
-        //     message: "Query Error"
-        // });
+        console.error("Error:", error);
+        return res.json({
+            status: 500,
+            success: false,
+            message: "Internal Server Error"
+        });
     } finally {
         await connection.end(); // Tutup koneksi
     }
 });
 
 app.post('/users', async (req, res) => {
-    const connection = await connectMySQL();
     const user = req.body;
     
     if (!user.name || !user.email || !user.password || !user.role) {
@@ -124,8 +123,9 @@ app.post('/users', async (req, res) => {
             message: "Bad Request"
         });
     }
-
+    
     try {
+        const connection = await connectMySQL();
         const existingUser = await connection.execute('SELECT * FROM users WHERE email = ?', [user.email]);
         // console.log("user data:", users);
         // if (users.find(u => u.email === user.email)) {
@@ -151,13 +151,17 @@ app.post('/users', async (req, res) => {
         }
     } catch (error) {
         console.error("Query error:", error);
+        return res.json({
+            status: 500,
+            success: false,
+            message: "Internal Server Error"
+        });
     } finally {
         await connection.end(); // Tutup koneksi
     } 
 });
 
 app.put('/users/:id',async (req, res) => {
-    const connection = await connectMySQL();
     const id = parseInt(req.params.id);
     // const user = users.find(u => u.id === id);
     if (!req.body.name || !req.body.email || !req.body.password || !req.body.role) {
@@ -168,6 +172,7 @@ app.put('/users/:id',async (req, res) => {
         });
     }
     try {
+        const connection = await connectMySQL();
         const [user] = await connection.execute('SELECT * FROM users WHERE id = ?', [id]);
         const [existingEmail] = await connection.execute('SELECT * FROM users WHERE email = ? AND id != ?', [req.body.email, id]);
         if (!user) {
@@ -203,17 +208,22 @@ app.put('/users/:id',async (req, res) => {
         }
     } catch (error) {
         console.error("Query error:", error);
+        return res.json({
+            status: 500,
+            success: false,
+            message: "Internal Server Error"
+        });
     } finally {
         await connection.end(); // Tutup koneksi
     }
 });
 
 app.patch('/users/activate/:id', async (req, res) => {
-    const connection = await connectMySQL();
     const id = parseInt(req.params.id);
     // const user = users.find(u => u.id === id);
     
     try {
+        const connection = await connectMySQL();
         const [user] = await connection.execute('SELECT * FROM users WHERE id = ?', [id]);
         if (!user) {
             return res.json({
@@ -233,16 +243,21 @@ app.patch('/users/activate/:id', async (req, res) => {
         });
     } catch (error) {
         console.error("Query error:", error);
+        return res.json({
+            status: 500,
+            success: false,
+            message: "Internal Server Error"
+        });
     } finally {
         await connection.end(); // Tutup koneksi
     }
 });
 
 app.delete('/users/:id', async (req, res) => {
-    const connection = await connectMySQL();
     const id = parseInt(req.params.id);
-
+    
     try {
+        const connection = await connectMySQL();
         const [user] = await connection.execute('SELECT * FROM users WHERE id = ?', [id]);
         if (!user) {
             return res.json({
@@ -261,6 +276,11 @@ app.delete('/users/:id', async (req, res) => {
         })
     } catch (error) {
         console.error("Query error:", error);
+        return res.json({
+            status: 500,
+            success: false,
+            message: "Internal Server Error"
+        });
     } finally {
         await connection.end(); // Tutup koneksi
     }
@@ -287,8 +307,8 @@ const localMiddleware = async (req, res, next) => {
         });
         // next();
     }else{
-        const connection = await connectMySQL();
         try {
+            const connection = await connectMySQL();
             // const user = users.find(u => u.id === parseInt(req.headers.user_id));
             const [user] = await connection.execute('SELECT * FROM users WHERE id = ?', [req.headers.user_id]);
             if (!user) {
@@ -305,6 +325,11 @@ const localMiddleware = async (req, res, next) => {
         }
         catch (error) {
             console.error("Query error:", error);
+            return res.json({
+                status: 500,
+                success: false,
+                message: "Internal Server Error"
+            });
         } finally {
             await connection.end(); // Tutup koneksi
         }
@@ -312,19 +337,37 @@ const localMiddleware = async (req, res, next) => {
 };
 
 app.get('/tasks', localMiddleware, async(req, res) => {
-    const connection = await connectMySQL();
-    const [Tasks] = await connection.execute('SELECT * FROM tasks where user_id = ?', [req.headers.user_id]);
-    res.json({
-        status: 200,
-        success: true,
-        data: Tasks
-    });
+    try {
+        const connection = await connectMySQL();
+        const [Tasks] = await connection.execute('SELECT * FROM tasks where user_id = ?', [req.headers.user_id]);
+        // console.log("user data:", users);
+        res.json({
+            status: 200,
+            success: true,
+            data: Tasks
+        });
+    } catch (error) {
+        console.error("Query error:", error);
+        return res.json({
+            status: 500,
+            success: false,
+            message: "Internal Server Error"
+        });
+    } finally {
+        await connection.end(); // Tutup koneksi
+    }
+    // const connection = await connectMySQL();
+    // const [Tasks] = await connection.execute('SELECT * FROM tasks where user_id = ?', [req.headers.user_id]);
+    // res.json({
+    //     status: 200,
+    //     success: true,
+    //     data: Tasks
+    // });
 });
 
 app.post('/tasks',localMiddleware, async(req, res) => {
-    const connection = await connectMySQL();
     const task = req.body;
-
+    
     if (!task.tittle || !task.description) {
         return res.json({
             status: 400,
@@ -332,8 +375,9 @@ app.post('/tasks',localMiddleware, async(req, res) => {
             message: "Bad Request"
         });
     }
-
+    
     try {
+        const connection = await connectMySQL();
         // const existingTask = await connection.execute('SELECT * FROM tasks WHERE tittle = ? AND user_id = ?', [task.tittle, req.headers.user_id]);
         // // console.log("user data:", users);
         // // if (users.find(u => u.email === user.email)) {
@@ -359,13 +403,17 @@ app.post('/tasks',localMiddleware, async(req, res) => {
         });
     } catch (error) {
         console.error("Query error:", error);
+        return res.json({
+            status: 500,
+            success: false,
+            message: "Internal Server Error"
+        });
     }finally {
         await connection.end();
     }
 });
 
 app.put('/tasks/:id', localMiddleware, async(req, res) => {
-    const connection = await connectMySQL();
     const id = parseInt(req.params.id);
     // const task = Tasks.find(t => t.id === id);
     if (!req.body.tittle || !req.body.description) {
@@ -375,8 +423,9 @@ app.put('/tasks/:id', localMiddleware, async(req, res) => {
             message: "Bad Request"
         });
     }
-
+    
     try {
+        const connection = await connectMySQL();
         const [task] = await connection.execute('SELECT * FROM tasks WHERE id = ?', [id]);
         if (!task) {
             return res.json({
@@ -402,17 +451,22 @@ app.put('/tasks/:id', localMiddleware, async(req, res) => {
         });
     } catch (error) {
         console.error("Query error:", error);
+        return res.json({
+            status: 500,
+            success: false,
+            message: "Internal Server Error"
+        });
     }finally {
         await connection.end();
     }
 });
 
 app.patch('/tasks/done/:id', localMiddleware, async (req, res) => {
-    const connection = await connectMySQL();
     const id = parseInt(req.params.id);
     // const task = Tasks.find(u => u.id === id);
-
+    
     try {
+        const connection = await connectMySQL();
         const [task] = await connection.execute('SELECT * FROM tasks WHERE id = ?', [id]);
         if (!task) {
             return res.json({
@@ -432,17 +486,22 @@ app.patch('/tasks/done/:id', localMiddleware, async (req, res) => {
         });
     } catch (error) {
         console.error("Query error:", error);
+        return res.json({
+            status: 500,
+            success: false,
+            message: "Internal Server Error"
+        });
     }finally {
         await connection.end();
     }
 });
 
 app.delete('/tasks/:id', localMiddleware, async (req, res) => {
-    const connection = await connectMySQL();
     const id = parseInt(req.params.id);
     // const task = Tasks.find(u => u.id === id);
-
+    
     try {
+        const connection = await connectMySQL();
         const [task] = await connection.execute('SELECT * FROM tasks WHERE id = ?', [id]);
         if (!task) {
             return res.json({
@@ -463,6 +522,11 @@ app.delete('/tasks/:id', localMiddleware, async (req, res) => {
         });
     } catch (error) {
         console.error("Query error:", error);
+        return res.json({
+            status: 500,
+            success: false,
+            message: "Internal Server Error"
+        });
     }finally {
         await connection.end();
     }
