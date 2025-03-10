@@ -1,32 +1,16 @@
 // const express = require('express'); // CommonJS
 // or ...
-import express from 'express'; // ES Modules
-import mysql from 'mysql2/promise';
+import express, { json } from 'express'; // ES Modules
+import jwt from 'jsonwebtoken';
+import connectMySQL from './connectMySQL.js';
 
-const app = express();	
+const app = express();
 // app ...
 // let users = []
 // let Tasks = []
 
 app.use(express.json()); // use body parser
 
-
-async function connectMySQL() {
-    // try {
-    const connection = await mysql.createConnection({
-        host: '103.56.206.121',
-        port: 3306,
-        user: 'mysql',
-        password: 'dP3WdgMV6ppa6plMeBFoQTj2QMrimqNCAuFhA0xmwL7f8DHJecdZ6jipGRfkskqF',
-        database: 'default'
-    });
-    // console.log("Connected to MySQL");
-    return connection;
-    // } catch (error) {
-    //     console.error("Error connecting to MySQL:", error);
-    //     return null;
-    // }
-}
 
 // // const connection = await connectMySQL();
 // app.use(async (req, res, next) => {
@@ -47,6 +31,72 @@ app.use((req, res, next) => {
     next();
 });
 
+const useToken = (req, res, next) => {
+    const token = req.headers['authorization'].split(' ')[1];
+    // console.log(token);
+    if (!token) {
+        return res.status(401).json({ message: 'No token provided' });
+    }
+    try {
+        const decoded = jwt.verify(token, 'secret');
+        req.user = decoded;
+        // req.user.role = decoded.role
+        console.log(req.user);
+        next();
+    } catch (err) {
+        return res.status(403).json({ message: 'Invalid token' });
+    }
+};
+
+	// role access function with argument array roles
+const roleAccess = (roles) => {
+    return (req, res, next) => {
+        if (roles.includes(req.user.role)) {
+            return next();
+        }
+        console.log(req.user);
+        // console.log(req);
+        return res.status(403).json({ message: 'You don\'t have permission to access this resource' });
+    };
+};
+
+app.get(
+    '/grant-access',
+    useToken,
+    roleAccess(['Admin', "User"]),
+    (req, res) => {
+        res.json({ message: 'Access granted' });
+    }
+);
+
+app.post(
+    '/login',
+    async (req, res) => {
+        const body = req.body;
+        const connection = await connectMySQL();
+
+        if (!body.email || !body.password) {
+            return res.status(400).json({ message: 'ID and role are required' });
+        }
+
+        try {
+            const [[user]] = await connection.execute('SELECT * FROM users WHERE email = ?', [body.email]);
+            if(body.email == user.email && body.password == user.password){
+                const token = jwt.sign({ id:user.id, role:user.role }, 'secret', { expiresIn: '1h' });
+                return res.json({ message: 'Login successful', token: token });
+            }else{
+                return res.status(401).json({ message: 'Invalid email or password' });
+            }
+            
+        } catch (error) {
+            console.error(error);
+            res.status(500).json({ message: 'Internal server error' });
+        }finally{
+            await connection.end(); // Menutup koneksi setelah digunakan
+        }
+    }
+);
+
 app.get('/connect/mysql', async(req, res) => {
     const connection = await connectMySQL();
     if (connection) {
@@ -58,8 +108,17 @@ app.get('/connect/mysql', async(req, res) => {
 })
 
 app.get('/', (req, res) => {
+    // coba origin dan host header untuk sharing data (domain dan subdomain)
+
+    // const origin = req.headers['origin'] || req.headers['host'] || '';
+    // if(origin.includes("localhost")){
+    //     res.send('Hello, Backend!');
+    // } else {
+    //     res.send('Hello, Bolo!');
+    // }
     res.send('Hello, Backend!');
 });
+
 app.get('/tambah', (req, res) => {
     res.send(`Hasil: ${20 + 10}`);
 });
@@ -91,16 +150,25 @@ app.get('/bagi/:a/:b', (req, res) => {
  * role
  * is_active
  */
-app.get('/users',async (req, res) => {
+app.get('/users', useToken, roleAccess(['Admin', "User"]),async (req, res) => {
+    const connection = await connectMySQL();
     try {
-        const connection = await connectMySQL();
-        const [users] = await connection.execute('SELECT * FROM users'); 
-        // console.log("user data:", users);
-        res.json({
-            status: 200,
-            success: true,
-            data: users
-        });
+        if(req.user.role == "Admin"){
+            const [users] = await connection.execute('SELECT * FROM users'); 
+            // console.log("user data:", users);
+            res.json({
+                status: 200,
+                success: true,
+                data: users
+            });
+        }else{
+            const [users] = await connection.execute('SELECT * FROM users WHERE id = ?', [req.user.id]); 
+            res.json({
+                status: 200,
+                success: true,
+                data: users
+            });
+        }
     } catch (error) {
         console.error("Error:", error);
         return res.json({
@@ -113,7 +181,7 @@ app.get('/users',async (req, res) => {
     }
 });
 
-app.post('/users', async (req, res) => {
+app.post('/users', useToken, roleAccess(['Admin']), async (req, res) => {
     const user = req.body;
     
     if (!user.name || !user.email || !user.password || !user.role) {
@@ -124,8 +192,8 @@ app.post('/users', async (req, res) => {
         });
     }
     
+    const connection = await connectMySQL();
     try {
-        const connection = await connectMySQL();
         const existingUser = await connection.execute('SELECT * FROM users WHERE email = ?', [user.email]);
         // console.log("user data:", users);
         // if (users.find(u => u.email === user.email)) {
@@ -171,8 +239,8 @@ app.put('/users/:id',async (req, res) => {
             message: "Bad Request"
         });
     }
+    const connection = await connectMySQL();
     try {
-        const connection = await connectMySQL();
         const [user] = await connection.execute('SELECT * FROM users WHERE id = ?', [id]);
         const [existingEmail] = await connection.execute('SELECT * FROM users WHERE email = ? AND id != ?', [req.body.email, id]);
         if (!user) {
@@ -222,8 +290,8 @@ app.patch('/users/activate/:id', async (req, res) => {
     const id = parseInt(req.params.id);
     // const user = users.find(u => u.id === id);
     
+    const connection = await connectMySQL();
     try {
-        const connection = await connectMySQL();
         const [user] = await connection.execute('SELECT * FROM users WHERE id = ?', [id]);
         if (!user) {
             return res.json({
@@ -256,8 +324,8 @@ app.patch('/users/activate/:id', async (req, res) => {
 app.delete('/users/:id', async (req, res) => {
     const id = parseInt(req.params.id);
     
+    const connection = await connectMySQL();
     try {
-        const connection = await connectMySQL();
         const [user] = await connection.execute('SELECT * FROM users WHERE id = ?', [id]);
         if (!user) {
             return res.json({
@@ -307,8 +375,8 @@ const localMiddleware = async (req, res, next) => {
         });
         // next();
     }else{
+        const connection = await connectMySQL();
         try {
-            const connection = await connectMySQL();
             // const user = users.find(u => u.id === parseInt(req.headers.user_id));
             const [user] = await connection.execute('SELECT * FROM users WHERE id = ?', [req.headers.user_id]);
             if (!user) {
@@ -337,8 +405,8 @@ const localMiddleware = async (req, res, next) => {
 };
 
 app.get('/tasks', localMiddleware, async(req, res) => {
+    const connection = await connectMySQL();
     try {
-        const connection = await connectMySQL();
         const [Tasks] = await connection.execute('SELECT * FROM tasks where user_id = ?', [req.headers.user_id]);
         // console.log("user data:", users);
         res.json({
@@ -376,8 +444,8 @@ app.post('/tasks',localMiddleware, async(req, res) => {
         });
     }
     
+    const connection = await connectMySQL();
     try {
-        const connection = await connectMySQL();
         // const existingTask = await connection.execute('SELECT * FROM tasks WHERE tittle = ? AND user_id = ?', [task.tittle, req.headers.user_id]);
         // // console.log("user data:", users);
         // // if (users.find(u => u.email === user.email)) {
@@ -424,8 +492,8 @@ app.put('/tasks/:id', localMiddleware, async(req, res) => {
         });
     }
     
+    const connection = await connectMySQL();
     try {
-        const connection = await connectMySQL();
         const [task] = await connection.execute('SELECT * FROM tasks WHERE id = ?', [id]);
         if (!task) {
             return res.json({
@@ -465,8 +533,8 @@ app.patch('/tasks/done/:id', localMiddleware, async (req, res) => {
     const id = parseInt(req.params.id);
     // const task = Tasks.find(u => u.id === id);
     
+    const connection = await connectMySQL();
     try {
-        const connection = await connectMySQL();
         const [task] = await connection.execute('SELECT * FROM tasks WHERE id = ?', [id]);
         if (!task) {
             return res.json({
@@ -500,8 +568,8 @@ app.delete('/tasks/:id', localMiddleware, async (req, res) => {
     const id = parseInt(req.params.id);
     // const task = Tasks.find(u => u.id === id);
     
+    const connection = await connectMySQL();
     try {
-        const connection = await connectMySQL();
         const [task] = await connection.execute('SELECT * FROM tasks WHERE id = ?', [id]);
         if (!task) {
             return res.json({
