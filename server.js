@@ -3,14 +3,19 @@
 import express, { json } from 'express'; // ES Modules
 import jwt from 'jsonwebtoken';
 import connectMySQL from './connectMySQL.js';
+import multer from 'multer';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import fs from 'fs';
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 const app = express();
 // app ...
 // let users = []
 // let Tasks = []
 
 app.use(express.json()); // use body parser
-
 
 // // const connection = await connectMySQL();
 // app.use(async (req, res, next) => {
@@ -48,7 +53,7 @@ const useToken = (req, res, next) => {
     }
 };
 
-	// role access function with argument array roles
+// role access function with argument array roles
 const roleAccess = (roles) => {
     return (req, res, next) => {
         if (roles.includes(req.user.role)) {
@@ -59,6 +64,34 @@ const roleAccess = (roles) => {
         return res.status(403).json({ message: 'You don\'t have permission to access this resource' });
     };
 };
+
+// multer for upload file
+// Konfigurasi penyimpanan
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        cb(null, 'uploads/'); // Folder tujuan
+    },
+    filename: (req, file, cb) => {
+        cb(null, Date.now() + path.extname(file.originalname)); // Nama file unik
+    }
+});
+
+// Filter tipe file
+const fileFilter = (req, file, cb) => {
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/jpg'];
+    if (allowedTypes.includes(file.mimetype)) {
+        cb(null, true);
+    } else {
+        cb(new Error('Hanya file gambar yang diperbolehkan!'), false);
+    }
+};
+
+// Konfigurasi upload
+const upload = multer({
+    storage: storage,
+    limits: { fileSize: 1 * 1024 * 1024 }, // Maksimal 5MB
+    fileFilter: fileFilter
+});
 
 app.get(
     '/grant-access',
@@ -92,7 +125,7 @@ app.post(
             console.error(error);
             res.status(500).json({ message: 'Internal server error' });
         }finally{
-            await connection.end(); // Menutup koneksi setelah digunakan
+            await connection.end();
         }
     }
 );
@@ -100,7 +133,7 @@ app.post(
 app.get('/connect/mysql', async(req, res) => {
     const connection = await connectMySQL();
     if (connection) {
-        await connection.end(); // Menutup koneksi setelah digunakan
+        await connection.end(); 
         return res.send('database is connected');
     }else{
         return res.send('database is not connected');
@@ -150,11 +183,16 @@ app.get('/bagi/:a/:b', (req, res) => {
  * role
  * is_active
  */
-app.get('/users', useToken, roleAccess(['Admin', "User"]),async (req, res) => {
+app.get('/users', useToken, roleAccess(['admin', "user"]),async (req, res) => {
     const connection = await connectMySQL();
     try {
-        if(req.user.role == "Admin"){
-            const [users] = await connection.execute('SELECT * FROM users'); 
+        if(req.user.role == "admin"){
+            const [users] = await connection.execute('SELECT * FROM users');
+            users.map((user) => {
+                if(user.avatar != ""){
+                    user.avatar = `${req.protocol}://${req.get('host')}/file/${user.avatar}`
+                }
+            }); 
             // console.log("user data:", users);
             res.json({
                 status: 200,
@@ -162,11 +200,15 @@ app.get('/users', useToken, roleAccess(['Admin', "User"]),async (req, res) => {
                 data: users
             });
         }else{
-            const [users] = await connection.execute('SELECT * FROM users WHERE id = ?', [req.user.id]); 
+            const [[user]] = await connection.execute('SELECT * FROM users WHERE id = ?', [req.user.id]); 
+
+            if(user.avatar != ""){
+                user.avatar = `${req.protocol}://${req.get('host')}/file/${user.avatar}`
+            }
             res.json({
                 status: 200,
                 success: true,
-                data: users
+                data: user
             });
         }
     } catch (error) {
@@ -181,11 +223,11 @@ app.get('/users', useToken, roleAccess(['Admin', "User"]),async (req, res) => {
     }
 });
 
-app.post('/users', useToken, roleAccess(['Admin']), async (req, res) => {
+app.post('/users', useToken, roleAccess(['admin']), upload.single('avatar'), async (req, res) => {
     const user = req.body;
     
     if (!user.name || !user.email || !user.password || !user.role) {
-        res.json({
+        return res.json({
             status: 400,
             success: false,
             message: "Bad Request"
@@ -198,7 +240,7 @@ app.post('/users', useToken, roleAccess(['Admin']), async (req, res) => {
         // console.log("user data:", users);
         // if (users.find(u => u.email === user.email)) {
         if (existingUser[0].length > 0) {
-            res.json({
+            return res.json({
                 status: 400,
                 success: false,
                 message: "Email already exists"
@@ -207,8 +249,15 @@ app.post('/users', useToken, roleAccess(['Admin']), async (req, res) => {
             // user["id"]= users.length + 1;
             user["is_active"] = false;
             // users.push(user);
-            await connection.execute('INSERT INTO users (name, email, password, role, is_active) VALUES (?, ?, ?, ?, ?)', 
-                [user.name, user.email, user.password, user.role, user.is_active])
+
+            let avatar = "";
+            if (req?.file && req.file?.filename) {
+                // upload
+                avatar = req.file.filename;
+            }
+                
+            await connection.execute('INSERT INTO users (name, email, password, role, is_active, avatar) VALUES (?, ?, ?, ?, ?, ?)', 
+                [user.name, user.email, user.password, user.role, user.is_active, avatar]);
             const [users] = await connection.execute('SELECT * FROM users'); 
         
             res.json({
@@ -229,7 +278,7 @@ app.post('/users', useToken, roleAccess(['Admin']), async (req, res) => {
     } 
 });
 
-app.put('/users/:id',async (req, res) => {
+app.put('/users/:id', useToken, roleAccess(['admin', "user"]), upload.single('avatar') ,async (req, res) => {
     const id = parseInt(req.params.id);
     // const user = users.find(u => u.id === id);
     if (!req.body.name || !req.body.email || !req.body.password || !req.body.role) {
@@ -254,26 +303,33 @@ app.put('/users/:id',async (req, res) => {
 
         // if (users.find(u => u.email === req.body.email && u.id !== id)) {
         if (existingEmail.length > 0) {
-            res.json({
+            return res.json({
                 status: 400,
                 success: false,
                 message: "Email already exists"
             });
-        }else{
-            await connection.execute('UPDATE users SET name = ?, email = ?, password = ?, role = ? WHERE id = ?', 
-                [req.body.name, req.body.email, req.body.password, req.body.role, id])
-            const [users] = await connection.execute('SELECT * FROM users');
-            // user.name = req.body.name ?? user.name;
-            // user.email = req.body.email ?? user.email;
-            // user.password = req.body.password ?? user.password;
-            // user.role = req.body.role ?? user.role;
-    
-            res.json({
-                status: 200,
-                success: true,
-                data: users
-            });
         }
+
+        let avatar = "";
+        if (req?.file && req.file?.filename) {
+            // upload
+            avatar = req.file.filename;
+        }
+
+        await connection.execute('UPDATE users SET name = ?, email = ?, password = ?, role = ?, avatar = ? WHERE id = ?', 
+            [req.body.name, req.body.email, req.body.password, req.body.role, avatar, id])
+        const [users] = await connection.execute('SELECT * FROM users');
+        // user.name = req.body.name ?? user.name;
+        // user.email = req.body.email ?? user.email;
+        // user.password = req.body.password ?? user.password;
+        // user.role = req.body.role ?? user.role;
+
+        res.json({
+            status: 200,
+            success: true,
+            data: users
+        });
+        
     } catch (error) {
         console.error("Query error:", error);
         return res.json({
@@ -601,6 +657,31 @@ app.delete('/tasks/:id', localMiddleware, async (req, res) => {
 });
 
 
+// routes for endpoint uploads
+app.post('/upload', upload.single('file'), (req, res) => {
+    if (!req.file) {
+        return res.status(400).send('No file uploaded');
+    }
+    res.send('File uploaded successfully:' + req.file.filename);
+});
+
+app.get('/file/:filename', (req, res) => {
+    try {
+        if (!req.params.filename) {
+            throw new Error('File not found');
+        }
+
+        const filePath = path.join(__dirname, 'uploads', req.params.filename);
+        res.sendFile(filePath);
+        if (!fs.existsSync(filePath)) {
+            throw new Error('File not found');
+        }
+        // res.download(filePath);
+        res.status(200).json({ message: 'File berhasil diunduh' });
+    } catch (error) {
+        return res.status(404).json({ message: error.message });
+    }
+});
 
 app.listen(3000, () => {
     console.log('Server is running on port 3000');
