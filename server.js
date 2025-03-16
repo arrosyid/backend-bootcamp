@@ -7,6 +7,11 @@ import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+// import https from 'https';
+// import morgan from 'morgan';
+import cors from 'cors';
+import crypto from 'crypto';
+import rateLimit from 'express-rate-limit';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -16,6 +21,37 @@ const app = express();
 // let Tasks = []
 
 app.use(express.json()); // use body parser
+
+// app.use(morgan("dev"));
+
+// app.get("/", (req, res) => {
+//     res.send("WELCOME TO THE BASIC EXPRESS APP WITH AN HTTPS SERVER");
+// });
+
+// const options = {
+//     key: fs.readFileSync(path.join(__dirname, 'localhost-key.pem')),
+//     cert: fs.readFileSync(path.join(__dirname, 'cert.pem')),
+//     // passphrase: 'password'
+// }
+// const PORT = 443;
+
+// // Create HTTPS server
+// https.createServer(options, app)
+//     .listen(PORT, () => {
+//         console.log(`Server running on https://localhost:${PORT}`);
+//     });
+
+// Configure CORS
+app.use(cors({
+    origin: 'https://localhost:3000',
+    methods: ['GET', 'POST', 'PUT', 'DELETE']
+}));
+
+// Configure rate limiting
+app.use(rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100 // limit each IP to 100 requests per windowMs
+}));
 
 // // const connection = await connectMySQL();
 // app.use(async (req, res, next) => {
@@ -31,6 +67,7 @@ app.use(express.json()); // use body parser
 //     }
 // })
 // global midleware
+
 app.use((req, res, next) => {
     console.log(`${req.method} ${req.url}`);
     next();
@@ -90,7 +127,13 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({
     storage: storage,
     limits: { fileSize: 1 * 1024 * 1024 }, // Maksimal 5MB
-    fileFilter: fileFilter
+    fileFilter: fileFilter,
+    // onError: (err, req, res, next) => {
+    //     // if (err instanceof multer.MulterError) {
+    //     //     return res.status(400).json({ message: err.message });
+    //     // }
+    //     // console.log("halo");
+    // }
 });
 
 app.get(
@@ -141,15 +184,13 @@ app.get('/connect/mysql', async(req, res) => {
 })
 
 app.get('/', (req, res) => {
-    // coba origin dan host header untuk sharing data (domain dan subdomain)
-
-    // const origin = req.headers['origin'] || req.headers['host'] || '';
-    // if(origin.includes("localhost")){
-    //     res.send('Hello, Backend!');
-    // } else {
-    //     res.send('Hello, Bolo!');
-    // }
-    res.send('Hello, Backend!');
+    const origin = req.headers['origin'] || req.headers['host'] || '';
+    if(origin.includes("localhost")){
+        res.send('Hello, Backend!, from localhost');
+    } else {
+        res.send(`Hello, Bolo!, from ${origin}`);
+    }
+    // res.send('Hello, Backend!');
 });
 
 app.get('/tambah', (req, res) => {
@@ -267,7 +308,14 @@ app.post('/users', useToken, roleAccess(['admin']), upload.single('avatar'), asy
             });
         }
     } catch (error) {
-        console.error("Query error:", error);
+        // if( error instanceof multer.MulterError && error.code == "LIMIT_FILE_SIZE"){
+        //     return res.json({
+        //         status: 400,
+        //         success: false,
+        //         message: "File size too large"
+        //     })
+        // }
+        console.error("Query error:", error.message);
         return res.json({
             status: 500,
             success: false,
@@ -681,6 +729,40 @@ app.get('/file/:filename', (req, res) => {
     } catch (error) {
         return res.status(404).json({ message: error.message });
     }
+});
+
+class EncryptionService {
+    constructor() {
+        this.algorithm = 'aes-256-cbc';
+        this.key = crypto.randomBytes(32);
+        this.iv = crypto.randomBytes(16);
+    }
+    encrypt(text) {
+        const cipher = crypto.createCipheriv(this.algorithm, this.key, this.iv);
+        let encrypted = cipher.update(text, 'utf8', 'hex');
+        encrypted += cipher.final('hex');
+        return encrypted;
+    }
+    decrypt(encrypted) {
+        const decipher = crypto.createDecipheriv(this.algorithm, this.key, this.iv);
+        let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+        decrypted += decipher.final('utf8');
+        return decrypted;
+    }
+}
+app.post('/secure-data', (req, res) => {
+    const encryption = new EncryptionService();
+    const { data } = req.body;
+
+    // Encrypt sensitive data
+    const encrypted = encryption.encrypt(data);
+
+    // Store encrypted data...
+
+    res.json({
+        message: 'Data encrypted successfully',
+        encrypted
+    });
 });
 
 app.listen(3000, () => {
