@@ -119,7 +119,7 @@ const fileFilter = (req, file, cb) => {
     if (allowedTypes.includes(file.mimetype)) {
         cb(null, true);
     } else {
-        cb(new Error('Hanya file gambar yang diperbolehkan!'), false);
+        cb(new Error('LIMIT_UNEXPECTED_FILE'), false);
     }
 };
 
@@ -128,12 +128,6 @@ const upload = multer({
     storage: storage,
     limits: { fileSize: 1 * 1024 * 1024 }, // Maksimal 5MB
     fileFilter: fileFilter,
-    // onError: (err, req, res, next) => {
-    //     // if (err instanceof multer.MulterError) {
-    //     //     return res.status(400).json({ message: err.message });
-    //     // }
-    //     // console.log("halo");
-    // }
 });
 
 app.get(
@@ -141,7 +135,9 @@ app.get(
     useToken,
     roleAccess(['Admin', "User"]),
     (req, res) => {
-        res.json({ message: 'Access granted' });
+        res.status(200).json({ 
+            message: 'Access granted' 
+        });
     }
 );
 
@@ -152,21 +148,30 @@ app.post(
         const connection = await connectMySQL();
 
         if (!body.email || !body.password) {
-            return res.status(400).json({ message: 'ID and role are required' });
+            return res.status(400).json({ 
+                message: 'ID and role are required' 
+            });
         }
 
         try {
             const [[user]] = await connection.execute('SELECT * FROM users WHERE email = ?', [body.email]);
             if(body.email == user.email && body.password == user.password){
                 const token = jwt.sign({ id:user.id, role:user.role }, 'secret', { expiresIn: '1h' });
-                return res.json({ message: 'Login successful', token: token });
+                return res.status(200).json({ 
+                    message: 'Login successful', 
+                    token: token 
+                });
             }else{
-                return res.status(401).json({ message: 'Invalid email or password' });
+                return res.status(401).json({ 
+                    message: 'Invalid email or password' 
+                });
             }
             
         } catch (error) {
             console.error(error);
-            res.status(500).json({ message: 'Internal server error' });
+            res.status(500).json({ 
+                message: 'Internal server error' 
+            });
         }finally{
             await connection.end();
         }
@@ -235,8 +240,7 @@ app.get('/users', useToken, roleAccess(['admin', "user"]),async (req, res) => {
                 }
             }); 
             // console.log("user data:", users);
-            res.json({
-                status: 200,
+            res.status(200).json({
                 success: true,
                 data: users
             });
@@ -246,16 +250,14 @@ app.get('/users', useToken, roleAccess(['admin', "user"]),async (req, res) => {
             if(user.avatar != ""){
                 user.avatar = `${req.protocol}://${req.get('host')}/file/${user.avatar}`
             }
-            res.json({
-                status: 200,
+            res.status(200).json({
                 success: true,
                 data: user
             });
         }
     } catch (error) {
         console.error("Error:", error);
-        return res.json({
-            status: 500,
+        return res.status(500).json({
             success: false,
             message: "Internal Server Error"
         });
@@ -264,130 +266,141 @@ app.get('/users', useToken, roleAccess(['admin', "user"]),async (req, res) => {
     }
 });
 
-app.post('/users', useToken, roleAccess(['admin']), upload.single('avatar'), async (req, res) => {
-    const user = req.body;
-    
-    if (!user.name || !user.email || !user.password || !user.role) {
-        return res.json({
-            status: 400,
+const ErrorHandler = (err, req, res, next) => {
+    console.log(err);
+    if(err.message == 'LIMIT_UNEXPECTED_FILE'){
+        res.status(400).json({
             success: false,
-            message: "Bad Request"
-        });
+            message: "File type not allowed must be image"
+        })
+    } else if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+        res.status(400).json({
+            success: false,
+            message: "File size too large"
+        })
+    } else {
+        next()
     }
-    
-    const connection = await connectMySQL();
-    try {
-        const existingUser = await connection.execute('SELECT * FROM users WHERE email = ?', [user.email]);
-        // console.log("user data:", users);
-        // if (users.find(u => u.email === user.email)) {
-        if (existingUser[0].length > 0) {
-            return res.json({
-                status: 400,
+}
+
+app.post('/users', 
+    useToken, 
+    roleAccess(['admin']), 
+    upload.single('avatar'), 
+    ErrorHandler, 
+    async (req, res) => {
+        const user = req.body;
+        
+        if (!user.name || !user.email || !user.password || !user.role) {
+            return res.status(400).json({
                 success: false,
-                message: "Email already exists"
+                message: "Bad Request"
             });
-        }else{
-            // user["id"]= users.length + 1;
-            user["is_active"] = false;
-            // users.push(user);
+        }
+        
+        const connection = await connectMySQL();
+        try {
+            const existingUser = await connection.execute('SELECT * FROM users WHERE email = ?', [user.email]);
+            // console.log("user data:", users);
+            // if (users.find(u => u.email === user.email)) {
+            if (existingUser[0].length > 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Email already exists"
+                });
+            }else{
+                // user["id"]= users.length + 1;
+                user["is_active"] = false;
+                // users.push(user);
+
+                let avatar = "";
+                if (req?.file && req.file?.filename) {
+                    // upload
+                    avatar = req.file.filename;
+                }
+                    
+                await connection.execute('INSERT INTO users (name, email, password, role, is_active, avatar) VALUES (?, ?, ?, ?, ?, ?)', 
+                    [user.name, user.email, user.password, user.role, user.is_active, avatar]);
+                const [users] = await connection.execute('SELECT * FROM users'); 
+            
+                res.status(201).json({
+                    success: true,
+                    data: users
+                });
+            }
+        } catch (error) {
+            console.error("Query error:", error.message);
+            return res.status(500).json({
+                success: false,
+                message: "Internal Server Error"
+            });
+        } finally {
+            await connection.end(); // Tutup koneksi
+        } 
+});
+
+app.put('/users/:id', 
+    useToken, 
+    roleAccess(['admin', "user"]), 
+    upload.single('avatar'), 
+    ErrorHandler,
+    async (req, res) => {
+        const id = parseInt(req.params.id);
+        // const user = users.find(u => u.id === id);
+        if (!req.body.name || !req.body.email || !req.body.password || !req.body.role) {
+            return res.status(400).json({
+                success: false,
+                message: "Bad Request"
+            });
+        }
+        const connection = await connectMySQL();
+        try {
+            const [user] = await connection.execute('SELECT * FROM users WHERE id = ?', [id]);
+            const [existingEmail] = await connection.execute('SELECT * FROM users WHERE email = ? AND id != ?', [req.body.email, id]);
+            if (!user) {
+                return res.status(404).json({
+                    success: false,
+                    message: "User not found"
+                });
+            }
+            // console.log(existingEmail);
+
+            // if (users.find(u => u.email === req.body.email && u.id !== id)) {
+            if (existingEmail.length > 0) {
+                return res.status(400).json({
+                    success: false,
+                    message: "Email already exists"
+                });
+            }
 
             let avatar = "";
             if (req?.file && req.file?.filename) {
                 // upload
                 avatar = req.file.filename;
             }
-                
-            await connection.execute('INSERT INTO users (name, email, password, role, is_active, avatar) VALUES (?, ?, ?, ?, ?, ?)', 
-                [user.name, user.email, user.password, user.role, user.is_active, avatar]);
-            const [users] = await connection.execute('SELECT * FROM users'); 
-        
-            res.json({
-                status: 201,
+
+            await connection.execute('UPDATE users SET name = ?, email = ?, password = ?, role = ?, avatar = ? WHERE id = ?', 
+                [req.body.name, req.body.email, req.body.password, req.body.role, avatar, id])
+            const [users] = await connection.execute('SELECT * FROM users');
+            // user.name = req.body.name ?? user.name;
+            // user.email = req.body.email ?? user.email;
+            // user.password = req.body.password ?? user.password;
+            // user.role = req.body.role ?? user.role;
+
+            res.status(200).json({
                 success: true,
                 data: users
             });
-        }
-    } catch (error) {
-        // if( error instanceof multer.MulterError && error.code == "LIMIT_FILE_SIZE"){
-        //     return res.json({
-        //         status: 400,
-        //         success: false,
-        //         message: "File size too large"
-        //     })
-        // }
-        console.error("Query error:", error.message);
-        return res.json({
-            status: 500,
-            success: false,
-            message: "Internal Server Error"
-        });
-    } finally {
-        await connection.end(); // Tutup koneksi
-    } 
-});
-
-app.put('/users/:id', useToken, roleAccess(['admin', "user"]), upload.single('avatar') ,async (req, res) => {
-    const id = parseInt(req.params.id);
-    // const user = users.find(u => u.id === id);
-    if (!req.body.name || !req.body.email || !req.body.password || !req.body.role) {
-        return res.json({
-            status: 400,
-            success: false,
-            message: "Bad Request"
-        });
-    }
-    const connection = await connectMySQL();
-    try {
-        const [user] = await connection.execute('SELECT * FROM users WHERE id = ?', [id]);
-        const [existingEmail] = await connection.execute('SELECT * FROM users WHERE email = ? AND id != ?', [req.body.email, id]);
-        if (!user) {
-            return res.json({
-                status: 404,
+            
+        } catch (error) {
+            console.error("Query error:", error);
+            return res.status(500).json({
                 success: false,
-                message: "User not found"
+                message: "Internal Server Error"
             });
+        } finally {
+            await connection.end(); // Tutup koneksi
         }
-        // console.log(existingEmail);
-
-        // if (users.find(u => u.email === req.body.email && u.id !== id)) {
-        if (existingEmail.length > 0) {
-            return res.json({
-                status: 400,
-                success: false,
-                message: "Email already exists"
-            });
-        }
-
-        let avatar = "";
-        if (req?.file && req.file?.filename) {
-            // upload
-            avatar = req.file.filename;
-        }
-
-        await connection.execute('UPDATE users SET name = ?, email = ?, password = ?, role = ?, avatar = ? WHERE id = ?', 
-            [req.body.name, req.body.email, req.body.password, req.body.role, avatar, id])
-        const [users] = await connection.execute('SELECT * FROM users');
-        // user.name = req.body.name ?? user.name;
-        // user.email = req.body.email ?? user.email;
-        // user.password = req.body.password ?? user.password;
-        // user.role = req.body.role ?? user.role;
-
-        res.json({
-            status: 200,
-            success: true,
-            data: users
-        });
-        
-    } catch (error) {
-        console.error("Query error:", error);
-        return res.json({
-            status: 500,
-            success: false,
-            message: "Internal Server Error"
-        });
-    } finally {
-        await connection.end(); // Tutup koneksi
-    }
 });
 
 app.patch('/users/activate/:id', async (req, res) => {
@@ -398,8 +411,7 @@ app.patch('/users/activate/:id', async (req, res) => {
     try {
         const [user] = await connection.execute('SELECT * FROM users WHERE id = ?', [id]);
         if (!user) {
-            return res.json({
-                status: 404,
+            return res.status(404).json({
                 success: false,
                 message: "User not found"
             });
@@ -408,15 +420,13 @@ app.patch('/users/activate/:id', async (req, res) => {
         await connection.execute('UPDATE users SET is_active = ? WHERE id = ?', 
             [true, id])
         const [users] = await connection.execute('SELECT * FROM users');
-        res.json({
-            status: 200,
+        res.status(200).json({
             success: true,
             data: users
         });
     } catch (error) {
         console.error("Query error:", error);
-        return res.json({
-            status: 500,
+        return res.status(500).json({
             success: false,
             message: "Internal Server Error"
         });
@@ -432,8 +442,7 @@ app.delete('/users/:id', async (req, res) => {
     try {
         const [user] = await connection.execute('SELECT * FROM users WHERE id = ?', [id]);
         if (!user) {
-            return res.json({
-                status: 404,
+            return res.status(404).json({
                 success: false,
                 message: "User not found"
             });
@@ -441,15 +450,13 @@ app.delete('/users/:id', async (req, res) => {
         await connection.execute('DELETE FROM users WHERE id = ?', [id]);
         const [users] = await connection.execute('SELECT * FROM users');
 
-        res.json({
-            status: 200,
+        res.status(200).json({
             success: true,
             data: users
         })
     } catch (error) {
         console.error("Query error:", error);
-        return res.json({
-            status: 500,
+        return res.status(500).json({
             success: false,
             message: "Internal Server Error"
         });
@@ -472,8 +479,7 @@ app.delete('/users/:id', async (req, res) => {
 const localMiddleware = async (req, res, next) => {
     // console.log(req.headers.user_id);
     if (!req.headers.user_id) {
-        res.json({
-            status: 401,
+        res.status(401).json({
             success: false,
             message: "Unauthorized" 
         });
@@ -484,8 +490,7 @@ const localMiddleware = async (req, res, next) => {
             // const user = users.find(u => u.id === parseInt(req.headers.user_id));
             const [user] = await connection.execute('SELECT * FROM users WHERE id = ?', [req.headers.user_id]);
             if (!user) {
-                res.json({
-                    status: 404,
+                res.status(404).json({
                     success: false,
                     message: "Users Not Found" 
                 });
@@ -497,8 +502,7 @@ const localMiddleware = async (req, res, next) => {
         }
         catch (error) {
             console.error("Query error:", error);
-            return res.json({
-                status: 500,
+            return res.status(500).json({
                 success: false,
                 message: "Internal Server Error"
             });
@@ -513,15 +517,13 @@ app.get('/tasks', localMiddleware, async(req, res) => {
     try {
         const [Tasks] = await connection.execute('SELECT * FROM tasks where user_id = ?', [req.headers.user_id]);
         // console.log("user data:", users);
-        res.json({
-            status: 200,
+        res.status(200).json({
             success: true,
             data: Tasks
         });
     } catch (error) {
         console.error("Query error:", error);
-        return res.json({
-            status: 500,
+        return res.status(500).json({
             success: false,
             message: "Internal Server Error"
         });
@@ -530,7 +532,7 @@ app.get('/tasks', localMiddleware, async(req, res) => {
     }
     // const connection = await connectMySQL();
     // const [Tasks] = await connection.execute('SELECT * FROM tasks where user_id = ?', [req.headers.user_id]);
-    // res.json({
+    // res.status(200).json({
     //     status: 200,
     //     success: true,
     //     data: Tasks
@@ -541,8 +543,7 @@ app.post('/tasks',localMiddleware, async(req, res) => {
     const task = req.body;
     
     if (!task.tittle || !task.description) {
-        return res.json({
-            status: 400,
+        return res.status(400).json({
             success: false,
             message: "Bad Request"
         });
@@ -554,7 +555,7 @@ app.post('/tasks',localMiddleware, async(req, res) => {
         // // console.log("user data:", users);
         // // if (users.find(u => u.email === user.email)) {
         // if (existingTask[0].length > 0) {
-        //     res.json({
+        //     res.status(200).json({
         //         status: 400,
         //         success: false,
         //         message: "Task already exists"
@@ -568,15 +569,13 @@ app.post('/tasks',localMiddleware, async(req, res) => {
         // task["is_done"] = false;
         // Tasks.push(task);
     
-        res.json({
-            status: 201,
+        res.status(201).json({
             success: true,
             data: Tasks
         });
     } catch (error) {
         console.error("Query error:", error);
-        return res.json({
-            status: 500,
+        return res.status(500).json({
             success: false,
             message: "Internal Server Error"
         });
@@ -589,8 +588,7 @@ app.put('/tasks/:id', localMiddleware, async(req, res) => {
     const id = parseInt(req.params.id);
     // const task = Tasks.find(t => t.id === id);
     if (!req.body.tittle || !req.body.description) {
-        return res.json({
-            status: 400,
+        return res.status(400).json({
             success: false,
             message: "Bad Request"
         });
@@ -600,8 +598,7 @@ app.put('/tasks/:id', localMiddleware, async(req, res) => {
     try {
         const [task] = await connection.execute('SELECT * FROM tasks WHERE id = ?', [id]);
         if (!task) {
-            return res.json({
-                status: 404,
+            return res.status(404).json({
                 success: false,
                 message: "Task Not Found"
             });
@@ -616,15 +613,13 @@ app.put('/tasks/:id', localMiddleware, async(req, res) => {
         // task.description = req.body.description ?? task.description;
         // task.is_done = req.body.is_done ?? task.is_done;
 
-        res.json({
-            status: 200,
+        res.status(200).json({
             success: true,
             data: Tasks
         });
     } catch (error) {
         console.error("Query error:", error);
-        return res.json({
-            status: 500,
+        return res.status(500).json({
             success: false,
             message: "Internal Server Error"
         });
@@ -641,8 +636,7 @@ app.patch('/tasks/done/:id', localMiddleware, async (req, res) => {
     try {
         const [task] = await connection.execute('SELECT * FROM tasks WHERE id = ?', [id]);
         if (!task) {
-            return res.json({
-                status: 404,
+            return res.status(404).json({
                 success: false,
                 message: "Task Not Found"
             });
@@ -651,15 +645,13 @@ app.patch('/tasks/done/:id', localMiddleware, async (req, res) => {
         await connection.execute('UPDATE tasks SET is_done = ? WHERE id = ?', 
             [true, id])
         const [Tasks] = await connection.execute('SELECT * FROM tasks where user_id = ?', [req.headers.user_id]);
-        res.json({
-            status: 200,
+        res.status(200).json({
             success: true,
             data: Tasks
         });
     } catch (error) {
         console.error("Query error:", error);
-        return res.json({
-            status: 500,
+        return res.status(500).json({
             success: false,
             message: "Internal Server Error"
         });
@@ -676,8 +668,7 @@ app.delete('/tasks/:id', localMiddleware, async (req, res) => {
     try {
         const [task] = await connection.execute('SELECT * FROM tasks WHERE id = ?', [id]);
         if (!task) {
-            return res.json({
-                status: 404,
+            return res.status(404).json({
                 success: false,
                 message: "Task Not Found"
             });
@@ -687,15 +678,13 @@ app.delete('/tasks/:id', localMiddleware, async (req, res) => {
         await connection.execute('DELETE FROM tasks WHERE id = ?', [id]);
         const [Tasks] = await connection.execute('SELECT * FROM tasks where user_id = ?', [req.headers.user_id]);
 
-        res.json({
-            status: 200,
+        res.status(200).json({
             success: true,
             data: Tasks
         });
     } catch (error) {
         console.error("Query error:", error);
-        return res.json({
-            status: 500,
+        return res.status(500).json({
             success: false,
             message: "Internal Server Error"
         });
@@ -725,9 +714,13 @@ app.get('/file/:filename', (req, res) => {
             throw new Error('File not found');
         }
         // res.download(filePath);
-        res.status(200).json({ message: 'File berhasil diunduh' });
+        res.status(200).json({ 
+            message: 'File berhasil diunduh' 
+        });
     } catch (error) {
-        return res.status(404).json({ message: error.message });
+        return res.status(404).json({ 
+            message: error.message 
+        });
     }
 });
 
@@ -759,7 +752,7 @@ app.post('/secure-data', (req, res) => {
 
     // Store encrypted data...
 
-    res.json({
+    return res.status(200).json({
         message: 'Data encrypted successfully',
         encrypted
     });
