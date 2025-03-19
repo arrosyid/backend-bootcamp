@@ -12,8 +12,11 @@ import fs from 'fs';
 import cors from 'cors';
 import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
+import { get } from 'https';
 
-const __filename = fileURLToPath(import.meta.url);
+// const __filename = fileURLToPath(import.meta.url);
+// const __dirname = path.dirname(__filename);
+const __filename = path.resolve();
 const __dirname = path.dirname(__filename);
 const app = express();
 // app ...
@@ -155,6 +158,12 @@ app.post(
 
         try {
             const [[user]] = await connection.execute('SELECT * FROM users WHERE email = ?', [body.email]);
+            if(!user){
+                return res.status(401).json({
+                    message: 'Invalid email or password'
+                });
+            }
+            console.log(user);
             if(body.email == user.email && body.password == user.password){
                 const token = jwt.sign({ id:user.id, role:user.role }, 'secret', { expiresIn: '1h' });
                 return res.status(200).json({ 
@@ -357,13 +366,14 @@ app.put('/users/:id',
         try {
             const [user] = await connection.execute('SELECT * FROM users WHERE id = ?', [id]);
             const [existingEmail] = await connection.execute('SELECT * FROM users WHERE email = ? AND id != ?', [req.body.email, id]);
+            
             if (!user) {
                 return res.status(404).json({
                     success: false,
                     message: "User not found"
                 });
             }
-            // console.log(existingEmail);
+            // console.log({ existingEmail });
 
             // if (users.find(u => u.email === req.body.email && u.id !== id)) {
             if (existingEmail.length > 0) {
@@ -596,16 +606,20 @@ app.put('/tasks/:id', localMiddleware, async(req, res) => {
     
     const connection = await connectMySQL();
     try {
-        const [task] = await connection.execute('SELECT * FROM tasks WHERE id = ?', [id]);
-        if (!task) {
+        const [[task]] = await connection.execute('SELECT * FROM tasks WHERE id = ?', [id]);
+        console.log(task);
+        if (!task || task.length === 0) {
             return res.status(404).json({
                 success: false,
                 message: "Task Not Found"
             });
         }
+        // const task = get_task.length > 0 ? get_task[0] : null;
+        // console.log(task);
+
 
         await connection.execute('UPDATE tasks SET tittle = ?, description = ?, is_done = ? WHERE id = ?', 
-            [req.body.tittle, req.body.description, task[0].is_done, id])
+            [req.body.tittle, req.body.description, task.is_done, id])
         const [Tasks] = await connection.execute('SELECT * FROM tasks where user_id = ?', [req.headers.user_id]);
 
         // task.user_id = req.body.user_id ?? task.user_id;
@@ -758,6 +772,7 @@ app.post('/secure-data', (req, res) => {
     });
 });
 
-app.listen(3000, () => {
+const server = app.listen(3000, () => {
     console.log('Server is running on port 3000');
 });
+export { app, server };
