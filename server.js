@@ -9,10 +9,31 @@ import { fileURLToPath } from 'url';
 import fs from 'fs';
 // import https from 'https';
 // import morgan from 'morgan';
+// import { get } from 'https';
 import cors from 'cors';
 import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
-import { get } from 'https';
+import Redis from 'ioredis';
+
+
+// Redis connection setup
+const redis = new Redis({
+    host: 'localhost',
+    port: 6379,
+    db: 0
+});
+
+redis.on('connect', () => {
+    console.log('Connected to Redis');
+});
+redis.on('error', (err) => {
+    console.error('Redis connection error:', err);
+});
+
+// Create promisified Redis methods
+const getAsync = async (key) => await redis.get(key);
+const setAsync = async (key, ttl, value) => await redis.setex(key, ttl, value);
+
 
 // const __filename = fileURLToPath(import.meta.url);
 // const __dirname = path.dirname(__filename);
@@ -43,6 +64,15 @@ app.use(express.json()); // use body parser
 //     .listen(PORT, () => {
 //         console.log(`Server running on https://localhost:${PORT}`);
 //     });
+
+// check connection redis
+// app.get('/redis', async(req, res) => {
+//     setAsync('test', 200, 'testing redis hello world');
+
+//     res.status(200).json({ 
+//         message: getAsync('test') 
+//     });
+// })
 
 // Configure CORS
 app.use(cors({
@@ -242,12 +272,22 @@ app.get('/users', useToken, roleAccess(['admin', "user"]),async (req, res) => {
     const connection = await connectMySQL();
     try {
         if(req.user.role == "admin"){
-            const [users] = await connection.execute('SELECT * FROM users');
-            users.map((user) => {
-                if(user.avatar != ""){
-                    user.avatar = `${req.protocol}://${req.get('host')}/file/${user.avatar}`
-                }
-            }); 
+            // Try to get from cache
+            let users = await getAsync(`user:${req.user.id}`);
+            // console.log(users);
+            if (!users) {
+                [users] = await connection.execute('SELECT * FROM users');
+
+                users.map((user) => {
+                    if(user.avatar != ""){
+                        user.avatar = `${req.protocol}://${req.get('host')}/file/${user.avatar}`
+                    }
+                });
+
+                await setAsync(`user:${req.user.id}`, 60, JSON.stringify(users));
+            }else{
+                users = JSON.parse(users)
+            }
             // console.log("user data:", users);
             res.status(200).json({
                 success: true,
