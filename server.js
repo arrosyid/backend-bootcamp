@@ -14,6 +14,7 @@ import cors from 'cors';
 import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
 import Redis from 'ioredis';
+import { Server } from 'socket.io';
 
 
 // Redis connection setup
@@ -35,10 +36,10 @@ const getAsync = async (key) => await redis.get(key);
 const setAsync = async (key, ttl, value) => await redis.setex(key, ttl, value);
 
 
-// const __filename = fileURLToPath(import.meta.url);
-// const __dirname = path.dirname(__filename);
-const __filename = path.resolve();
+const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+// const __filename = path.resolve();
+// const __dirname = path.dirname(__filename);
 const app = express();
 // app ...
 // let users = []
@@ -101,10 +102,10 @@ app.use(rateLimit({
 // })
 // global midleware
 
-app.use((req, res, next) => {
-    console.log(`${req.method} ${req.url}`);
-    next();
-});
+// app.use((req, res, next) => {
+//     console.log(`${req.method} ${req.url}`);
+//     next();
+// });
 
 const useToken = (req, res, next) => {
     const token = req.headers['authorization'].split(' ')[1];
@@ -812,7 +813,52 @@ app.post('/secure-data', (req, res) => {
     });
 });
 
-const server = app.listen(3000, () => {
+
+app.get('/chat', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+const httpServer = app.listen(3000, () => {
     console.log('Server is running on port 3000');
 });
-export { app, server };
+const io = new Server(httpServer, {
+    cors: {
+        origin: ["http://localhost:3000"],
+        credentials: true
+    }
+});
+
+// Store connected users
+const users = new Map();
+
+io.on('connection', (socket) => {
+    console.log('Client connected:', socket.id);
+    
+    socket.on('join', (username) => {
+        users.set(socket.id, username);
+        io.emit('userJoined', {
+            username,
+            message: `${username} joined the chat`
+        });
+    });
+    
+    socket.on('message', (data) => {
+        const username = users.get(socket.id);
+        io.emit('message', {
+            username,
+            message: data.message,
+            timestamp: new Date()
+        });
+    });
+    
+    socket.on('disconnect', () => {
+        const username = users.get(socket.id);
+        users.delete(socket.id);
+        io.emit('userLeft', {
+            username,
+            message: `${username} left the chat`
+        });
+    });
+});
+
+export { app, httpServer };
