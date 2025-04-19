@@ -15,6 +15,7 @@ import crypto from 'crypto';
 import rateLimit from 'express-rate-limit';
 import Redis from 'ioredis';
 import { Server } from 'socket.io';
+import { body, validationResult } from 'express-validator';
 
 
 // Redis connection setup
@@ -177,13 +178,21 @@ app.get(
 
 app.post(
     '/login',
+    body('email').isEmail(),
+    body('password').notEmpty(),
     async (req, res) => {
         const body = req.body;
         const connection = await connectMySQL();
 
-        if (!body.email || !body.password) {
-            return res.status(400).json({ 
-                message: 'ID and role are required' 
+        // if (!body.email || !body.password) {
+        //     return res.status(400).json({ 
+        //         message: 'Email and password are required' 
+        //     });
+        // }
+        const errors = validationResult(req);
+        if (!errors.isEmpty()) {
+            return res.status(400).json({
+                errors: errors.array()
             });
         }
 
