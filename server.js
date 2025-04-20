@@ -121,6 +121,7 @@ const useToken = (req, res, next) => {
         console.log(req.user);
         next();
     } catch (err) {
+        console.log('Invalid token');
         return res.status(403).json({ message: 'Invalid token' });
     }
 };
@@ -129,10 +130,10 @@ const useToken = (req, res, next) => {
 const roleAccess = (roles) => {
     return (req, res, next) => {
         if (roles.includes(req.user.role)) {
+            console.log(req.user);
             return next();
         }
-        console.log(req.user);
-        // console.log(req);
+        console.log('Permission denied');
         return res.status(403).json({ message: 'You don\'t have permission to access this resource' });
     };
 };
@@ -163,6 +164,17 @@ const upload = multer({
     storage: storage,
     limits: { fileSize: 1 * 1024 * 1024 }, // Maksimal 5MB
     fileFilter: fileFilter,
+    // Logging
+    onFileUploadStart: (file) => {
+        console.log(`File upload started: ${file.originalname}`);
+    },
+    onFileUploadComplete: (file) => {
+        console.log(`File upload completed: ${file.originalname}`);
+    },
+
+    onFileUploadError: (err, file) => {
+        console.log(`File upload error: ${err.message}`);
+    }
 });
 
 app.get(
@@ -181,16 +193,13 @@ app.post(
     body('email').isEmail(),
     body('password').notEmpty(),
     async (req, res) => {
+        console.log('Login attempt with request body:', req.body);
         const body = req.body;
         const connection = await connectMySQL();
 
-        // if (!body.email || !body.password) {
-        //     return res.status(400).json({ 
-        //         message: 'Email and password are required' 
-        //     });
-        // }
         const errors = validationResult(req);
         if (!errors.isEmpty()) {
+            console.log('Validation errors:', errors.array());
             return res.status(400).json({
                 errors: errors.array()
             });
@@ -198,31 +207,35 @@ app.post(
 
         try {
             const [[user]] = await connection.execute('SELECT * FROM users WHERE email = ?', [body.email]);
-            if(!user){
+            if (!user) {
+                console.log('Invalid login attempt: User not found');
                 return res.status(401).json({
                     message: 'Invalid email or password'
                 });
             }
-            console.log(user);
-            if(body.email == user.email && body.password == user.password){
-                const token = jwt.sign({ id:user.id, role:user.role }, 'secret', { expiresIn: '1h' });
-                return res.status(200).json({ 
-                    message: 'Login successful', 
-                    token: token 
+            console.log('User found');
+            if (body.email == user.email && body.password == user.password) {
+                const token = jwt.sign({ id: user.id, role: user.role }, 'secret', { expiresIn: '1h' });
+                console.log('Login successful, token generated:', token);
+                return res.status(200).json({
+                    message: 'Login successful',
+                    token: token
                 });
-            }else{
-                return res.status(401).json({ 
-                    message: 'Invalid email or password' 
+            } else {
+                console.log('Invalid login attempt: Incorrect password');
+                return res.status(401).json({
+                    message: 'Invalid email or password'
                 });
             }
             
         } catch (error) {
-            console.error(error);
-            res.status(500).json({ 
-                message: 'Internal server error' 
+            console.error('Error during login process:', error);
+            res.status(500).json({
+                message: 'Internal server error'
             });
-        }finally{
+        } finally {
             await connection.end();
+            console.log('Database connection closed');
         }
     }
 );
@@ -278,36 +291,38 @@ app.get('/bagi/:a/:b', (req, res) => {
  * role
  * is_active
  */
-app.get('/users', useToken, roleAccess(['admin', "user"]),async (req, res) => {
+app.get('/users', useToken, roleAccess(['admin', "user"]), async (req, res) => {
+    console.log('GET /users request received');
     const connection = await connectMySQL();
     try {
-        if(req.user.role == "admin"){
-            // Try to get from cache
+        if (req.user.role == "admin") {
+            console.log('Admin access: Fetching all users');
             let users = await getAsync(`user:${req.user.id}`);
-            // console.log(users);
             if (!users) {
+                console.log('Cache miss: Querying database for users');
                 [users] = await connection.execute('SELECT * FROM users');
 
                 users.map((user) => {
-                    if(user.avatar != ""){
-                        user.avatar = `${req.protocol}://${req.get('host')}/file/${user.avatar}`
+                    if (user.avatar != "") {
+                        user.avatar = `${req.protocol}://${req.get('host')}/file/${user.avatar}`;
                     }
                 });
 
                 await setAsync(`user:${req.user.id}`, 60, JSON.stringify(users));
-            }else{
-                users = JSON.parse(users)
+            } else {
+                console.log('Cache hit: Using cached users data');
+                users = JSON.parse(users);
             }
-            // console.log("user data:", users);
             res.status(200).json({
                 success: true,
                 data: users
             });
-        }else{
-            const [[user]] = await connection.execute('SELECT * FROM users WHERE id = ?', [req.user.id]); 
+        } else {
+            console.log(`User access: Fetching user with ID ${req.user.id}`);
+            const [[user]] = await connection.execute('SELECT * FROM users WHERE id = ?', [req.user.id]);
 
-            if(user.avatar != ""){
-                user.avatar = `${req.protocol}://${req.get('host')}/file/${user.avatar}`
+            if (user.avatar != "") {
+                user.avatar = `${req.protocol}://${req.get('host')}/file/${user.avatar}`;
             }
             res.status(200).json({
                 success: true,
@@ -321,6 +336,7 @@ app.get('/users', useToken, roleAccess(['admin', "user"]),async (req, res) => {
             message: "Internal Server Error"
         });
     } finally {
+        console.log('Database connection closed');
         await connection.end(); // Tutup koneksi
     }
 });
@@ -537,8 +553,9 @@ app.delete('/users/:id', async (req, res) => {
 
 // Local Middleware
 const localMiddleware = async (req, res, next) => {
-    // console.log(req.headers.user_id);
+    console.log(`Request from ${req.ip}`);
     if (!req.headers.user_id) {
+        console.warn('Unauthorized request');
         res.status(401).json({
             success: false,
             message: "Unauthorized" 
@@ -550,6 +567,7 @@ const localMiddleware = async (req, res, next) => {
             // const user = users.find(u => u.id === parseInt(req.headers.user_id));
             const [user] = await connection.execute('SELECT * FROM users WHERE id = ?', [req.headers.user_id]);
             if (!user) {
+                console.warn(`User not found with id ${req.headers.user_id}`);
                 res.status(404).json({
                     success: false,
                     message: "Users Not Found" 
@@ -568,6 +586,7 @@ const localMiddleware = async (req, res, next) => {
             });
         } finally {
             await connection.end(); // Tutup koneksi
+            console.log('Database connection closed');
         }
     }
 };
@@ -575,8 +594,10 @@ const localMiddleware = async (req, res, next) => {
 app.get('/tasks', localMiddleware, async(req, res) => {
     const connection = await connectMySQL();
     try {
+        console.log(`Fetching tasks for user_id: ${req.headers.user_id}`);
         const [Tasks] = await connection.execute('SELECT * FROM tasks where user_id = ?', [req.headers.user_id]);
-        // console.log("user data:", users);
+        console.log(`Successfully retrieved ${Tasks.length} tasks`);
+        
         res.status(200).json({
             success: true,
             data: Tasks
@@ -588,15 +609,9 @@ app.get('/tasks', localMiddleware, async(req, res) => {
             message: "Internal Server Error"
         });
     } finally {
-        await connection.end(); // Tutup koneksi
+        await connection.end();
+        console.log('Database connection closed');
     }
-    // const connection = await connectMySQL();
-    // const [Tasks] = await connection.execute('SELECT * FROM tasks where user_id = ?', [req.headers.user_id]);
-    // res.status(200).json({
-    //     status: 200,
-    //     success: true,
-    //     data: Tasks
-    // });
 });
 
 app.post('/tasks',localMiddleware, async(req, res) => {
@@ -760,34 +775,41 @@ app.delete('/tasks/:id', localMiddleware, async (req, res) => {
 
 // routes for endpoint uploads
 app.post('/upload', upload.single('file'), (req, res) => {
+    console.log('POST /upload request received');
     if (!req.file) {
+        console.warn('No file uploaded');
         return res.status(400).send('No file uploaded');
     }
-    res.send('File uploaded successfully:' + req.file.filename);
+    console.log(`File uploaded successfully: ${req.file.filename}`);
+    res.send('File uploaded successfully: ' + req.file.filename);
 });
 
 app.get('/file/:filename', (req, res) => {
+    console.log(`GET /file/${req.params.filename} request received`);
     try {
         if (!req.params.filename) {
+            console.warn('File not found: No filename provided');
             throw new Error('File not found');
         }
 
         const filePath = path.join(__dirname, 'uploads', req.params.filename);
-        res.sendFile(filePath);
         if (!fs.existsSync(filePath)) {
+            console.warn(`File not found: ${req.params.filename}`);
             throw new Error('File not found');
         }
-        // res.download(filePath);
+
+        console.log(`File found: ${req.params.filename}`);
+        res.sendFile(filePath);
         res.status(200).json({ 
             message: 'File berhasil diunduh' 
         });
     } catch (error) {
+        console.error(`Error: ${error.message}`);
         return res.status(404).json({ 
             message: error.message 
         });
     }
 });
-
 class EncryptionService {
     constructor() {
         this.algorithm = 'aes-256-cbc';
@@ -811,8 +833,12 @@ app.post('/secure-data', (req, res) => {
     const encryption = new EncryptionService();
     const { data } = req.body;
 
+    console.log(`Encrypting data: ${data}`);
+
     // Encrypt sensitive data
     const encrypted = encryption.encrypt(data);
+
+    console.log(`Encrypted data: ${encrypted}`);
 
     // Store encrypted data...
 
@@ -826,7 +852,6 @@ app.post('/secure-data', (req, res) => {
 app.get('/chat', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
-
 const httpServer = app.listen(3000, () => {
     console.log('Server is running on port 3000');
 });
@@ -845,6 +870,7 @@ io.on('connection', (socket) => {
     
     socket.on('join', (username) => {
         users.set(socket.id, username);
+        console.log(`User joined: ${username}`);
         io.emit('userJoined', {
             username,
             message: `${username} joined the chat`
@@ -853,6 +879,7 @@ io.on('connection', (socket) => {
     
     socket.on('message', (data) => {
         const username = users.get(socket.id);
+        console.log(`Message from ${username}: ${data.message}`);
         io.emit('message', {
             username,
             message: data.message,
@@ -863,6 +890,7 @@ io.on('connection', (socket) => {
     socket.on('disconnect', () => {
         const username = users.get(socket.id);
         users.delete(socket.id);
+        console.log(`User disconnected: ${username}`);
         io.emit('userLeft', {
             username,
             message: `${username} left the chat`
