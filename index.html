@@ -27,16 +27,73 @@
         const socket = io('http://localhost:3000', {
             withCredentials: true
         });
-        
-    
+
         const form = document.getElementById('form');
         const input = document.getElementById('input');
         const messages = document.getElementById('messages');
-    
-        // Prompt for username
-        const username = prompt("Enter your name:");
-        socket.emit('join', username);
-    
+
+        // Function to handle initial connection or reconnection
+        function connectUser() {
+            // Check if we have a stored session
+            const storedSession = localStorage.getItem('chatSessionId');
+            const storedUsername = localStorage.getItem('chatUsername');
+            
+            // If it's a new user, ask for username
+            const username = storedUsername || prompt("Enter your name:");
+            
+            // Store username for future use
+            if (!storedUsername) {
+                localStorage.setItem('chatUsername', username);
+            }
+            
+            // Join with session data if available
+            socket.emit('join', { 
+                username: username,
+                sessionId: storedSession || null
+            });
+        }
+
+        // Connect on page load
+        connectUser();
+
+        // Handle session creation/reconnection confirmation
+        socket.on('sessionCreated', (data) => {
+            // Store the session ID
+            localStorage.setItem('chatSessionId', data.sessionId);
+            
+            // If reconnected, show a local message
+            if (data.reconnected) {
+                const item = document.createElement('li');
+                item.textContent = `Reconnected to chat as ${data.username}`;
+                item.style.fontStyle = 'italic';
+                item.style.color = '#008800';
+                messages.appendChild(item);
+                window.scrollTo(0, document.body.scrollHeight);
+            }
+        });
+
+        // Handle connection errors and reconnection
+        socket.on('disconnect', () => {
+            const item = document.createElement('li');
+            item.textContent = 'Disconnected from server. Attempting to reconnect...';
+            item.style.fontStyle = 'italic';
+            item.style.color = '#ff0000';
+            messages.appendChild(item);
+            window.scrollTo(0, document.body.scrollHeight);
+        });
+
+        socket.io.on('reconnect', () => {
+            const item = document.createElement('li');
+            item.textContent = 'Reconnected to server!';
+            item.style.fontStyle = 'italic';
+            item.style.color = '#008800';
+            messages.appendChild(item);
+            window.scrollTo(0, document.body.scrollHeight);
+            
+            // Reestablish the session
+            connectUser();
+        });
+
         // Kirim pesan saat form disubmit
         form.addEventListener('submit', (e) => {
             e.preventDefault();
@@ -45,7 +102,7 @@
                 input.value = '';
             }
         });
-    
+
         // Menangani pesan masuk dari server
         socket.on('message', (data) => {
             const item = document.createElement('li');
@@ -53,7 +110,7 @@
             messages.appendChild(item);
             window.scrollTo(0, document.body.scrollHeight);
         });
-    
+
         // Menangani notifikasi user join
         socket.on('userJoined', (data) => {
             const item = document.createElement('li');
@@ -62,7 +119,27 @@
             messages.appendChild(item);
             window.scrollTo(0, document.body.scrollHeight);
         });
-    
+
+        // Menangani notifikasi user reconnected
+        socket.on('userReconnected', (data) => {
+            const item = document.createElement('li');
+            item.textContent = `${data.message}`;
+            item.style.fontStyle = 'italic';
+            item.style.color = '#008800';
+            messages.appendChild(item);
+            window.scrollTo(0, document.body.scrollHeight);
+        });
+
+        // Menangani notifikasi user temporari disconnect
+        socket.on('userDisconnected', (data) => {
+            const item = document.createElement('li');
+            item.textContent = `${data.message}`;
+            item.style.fontStyle = 'italic';
+            item.style.color = '#ff9900';
+            messages.appendChild(item);
+            window.scrollTo(0, document.body.scrollHeight);
+        });
+
         // Menangani notifikasi user left
         socket.on('userLeft', (data) => {
             const item = document.createElement('li');

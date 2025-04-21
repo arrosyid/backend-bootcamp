@@ -37,7 +37,6 @@ const getAsync = async (key) => await redis.get(key);
 const setAsync = async (key, ttl, value) => await redis.setex(key, ttl, value);
 const delAsync = async (key) => await redis.del(key);
 
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 // const __filename = path.resolve();
@@ -866,19 +865,56 @@ const io = new Server(httpServer, {
     }
 });
 
-// Store connected users
+// Store connected users with socket ID mapping
 const users = new Map();
+// Store usernames with session IDs for reconnection
+const sessions = new Map();
 
 io.on('connection', (socket) => {
     console.log('Client connected:', socket.id);
     
-    socket.on('join', (username) => {
-        users.set(socket.id, username);
-        console.log(`User joined: ${username}`);
-        io.emit('userJoined', {
-            username,
-            message: `${username} joined the chat`
-        });
+    // Handle user joining with potential reconnection
+    socket.on('join', ({ username, sessionId }) => {
+        // If session ID is provided, attempt reconnection
+        if (sessionId && sessions.has(sessionId)) {
+            const existingUsername = sessions.get(sessionId);
+            users.set(socket.id, existingUsername);
+            
+            console.log(`User reconnected: ${existingUsername} (${socket.id})`);
+            
+            // Return the existing session ID
+            socket.emit('sessionCreated', { 
+                sessionId,
+                username: existingUsername,
+                reconnected: true
+            });
+            
+            // Notify other users about reconnection
+            socket.broadcast.emit('userReconnected', {
+                username: existingUsername,
+                message: `${existingUsername} reconnected to the chat`
+            });
+        } else {
+            // Create a new session for this user
+            const newSessionId = generateSessionId();
+            users.set(socket.id, username);
+            sessions.set(newSessionId, username);
+            
+            console.log(`User joined: ${username} (${socket.id}), Session: ${newSessionId}`);
+            
+            // Send session ID to client for storage
+            socket.emit('sessionCreated', { 
+                sessionId: newSessionId,
+                username,
+                reconnected: false
+            });
+            
+            // Notify all users about new join
+            io.emit('userJoined', {
+                username,
+                message: `${username} joined the chat`
+            });
+        }
     });
     
     socket.on('message', (data) => {
@@ -893,13 +929,43 @@ io.on('connection', (socket) => {
     
     socket.on('disconnect', () => {
         const username = users.get(socket.id);
+        if (!username) return;
+        
         users.delete(socket.id);
-        console.log(`User disconnected: ${username}`);
-        io.emit('userLeft', {
+        console.log(`User disconnected: ${username} (${socket.id})`);
+        
+        // Don't remove from sessions map to allow reconnection
+        
+        // Notify about temporary disconnection instead of leaving
+        io.emit('userDisconnected', {
             username,
-            message: `${username} left the chat`
+            message: `${username} disconnected from the chat`
         });
+        
+        // Set a timeout to clean up abandoned sessions
+        setTimeout(() => {
+            // Find and remove the session if the user hasn't reconnected
+            for (const [sessionId, name] of sessions.entries()) {
+                if (name === username && !Array.from(users.values()).includes(username)) {
+                    sessions.delete(sessionId);
+                    console.log(`Cleaned up abandoned session for ${username}`);
+                    
+                    // Now notify that user has fully left
+                    io.emit('userLeft', {
+                        username,
+                        message: `${username} left the chat`
+                    });
+                    break;
+                }
+            }
+        }, 60000); // 1 minute timeout for reconnection
     });
 });
+
+// Helper function to generate a unique session ID
+function generateSessionId() {
+    return Math.random().toString(36).substring(2, 15) + 
+           Math.random().toString(36).substring(2, 15);
+}
 
 export { app, httpServer };
