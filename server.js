@@ -851,6 +851,24 @@ app.post('/secure-data', (req, res) => {
     });
 });
 
+// app.get('/large-data', (req, res) => {
+//     const cursor = Collection.find().cursor();
+//     res.setHeader('Content-Type', 'application/json');
+//     res.write('[');
+    
+//     let first = true;
+//     cursor.on('data', (doc) => {
+//         if (!first) res.write(',');
+//         first = false;
+//         res.write(JSON.stringify(doc));
+//     });
+    
+//     cursor.on('end', () => {
+//         res.write(']');
+//         res.end();
+//     });
+// });
+
 
 app.get('/chat', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
@@ -964,8 +982,7 @@ io.on('connection', (socket) => {
 
 // Helper function to generate a unique session ID
 function generateSessionId() {
-    return Math.random().toString(36).substring(2, 15) + 
-           Math.random().toString(36).substring(2, 15);
+    return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
 }
 
 export { app, httpServer };
