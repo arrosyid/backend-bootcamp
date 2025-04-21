@@ -16,6 +16,10 @@ import rateLimit from 'express-rate-limit';
 import Redis from 'ioredis';
 import { Server } from 'socket.io';
 import { body, validationResult } from 'express-validator';
+import winston from 'winston';
+import expressWinston from 'express-winston';
+import DailyRotateFile from 'winston-daily-rotate-file';
+import client from 'prom-client';
 
 
 // Redis connection setup
@@ -87,6 +91,86 @@ app.use(rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutes
     max: 100 // limit each IP to 100 requests per windowMs
 }));
+
+
+//  Configure Winston logger
+const logger = winston.createLogger({
+    level: 'info',
+    format: winston.format.combine(
+        winston.format.timestamp(),
+        winston.format.json()
+    ),
+    transports: [
+        new DailyRotateFile({
+            filename: 'logs/app-%DATE%.log',
+            datePattern: 'YYYY-MM-DD',
+            maxSize: '20m',
+            maxFiles: '14d'
+        })
+    ]
+});
+
+//  Request logging middleware
+app.use(expressWinston.logger({
+    winstonInstance: logger,
+    meta: true,
+    msg: "HTTP {{req.method}} {{req.url}}",
+    expressFormat: true,
+    colorize: false
+}));
+
+//  Error logging middleware
+app.use(expressWinston.errorLogger({
+    winstonInstance: logger,
+    meta: true,
+    msg: "Error {{err.message}}",
+    colorize: false
+}));
+
+//  Custom error handler
+app.use((err, req, res, next) => {
+    logger.error('Error:', {
+        error: err.message,
+        stack: err.stack,
+        path: req.path,
+        method: req.method
+    });
+    res.status(500).json({ error: err.message });
+});
+
+// Create metrics
+const httpRequestDuration = new client.Histogram({
+    name: 'http_request_duration_seconds',
+    help: 'Duration of HTTP requests in seconds',
+    labelNames: ['method', 'route', 'status']
+});
+
+//  Enable default metrics
+client.collectDefaultMetrics();
+
+//  Middleware for metrics
+app.use((req, res, next) => {
+    const start = Date.now();
+    
+    res.on('finish', () => {
+        const duration = Date.now() - start;
+        httpRequestDuration
+            .labels(req.method, req.route?.path || req.path, res.statusCode)
+            .observe(duration / 1000);
+    });
+    
+    next();
+});
+
+//  Metrics endpoint
+app.get('/metrics', async (req, res) => {
+    try {
+        res.set('Content-Type', client.register.contentType);
+        res.send(await client.register.metrics());
+    } catch (err) {
+        res.status(500).send(err);
+    }
+});
 
 // // const connection = await connectMySQL();
 // app.use(async (req, res, next) => {
