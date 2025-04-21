@@ -35,6 +35,7 @@ redis.on('error', (err) => {
 // Create promisified Redis methods
 const getAsync = async (key) => await redis.get(key);
 const setAsync = async (key, ttl, value) => await redis.setex(key, ttl, value);
+const delAsync = async (key) => await redis.del(key);
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -421,13 +422,14 @@ app.put('/users/:id',
     ErrorHandler,
     async (req, res) => {
         const id = parseInt(req.params.id);
-        // const user = users.find(u => u.id === id);
+
         if (!req.body.name || !req.body.email || !req.body.password || !req.body.role) {
             return res.status(400).json({
                 success: false,
                 message: "Bad Request"
             });
         }
+
         const connection = await connectMySQL();
         try {
             const [user] = await connection.execute('SELECT * FROM users WHERE id = ?', [id]);
@@ -439,9 +441,7 @@ app.put('/users/:id',
                     message: "User not found"
                 });
             }
-            // console.log({ existingEmail });
 
-            // if (users.find(u => u.email === req.body.email && u.id !== id)) {
             if (existingEmail.length > 0) {
                 return res.status(400).json({
                     success: false,
@@ -451,17 +451,18 @@ app.put('/users/:id',
 
             let avatar = "";
             if (req?.file && req.file?.filename) {
-                // upload
                 avatar = req.file.filename;
             }
 
             await connection.execute('UPDATE users SET name = ?, email = ?, password = ?, role = ?, avatar = ? WHERE id = ?', 
-                [req.body.name, req.body.email, req.body.password, req.body.role, avatar, id])
+                [req.body.name, req.body.email, req.body.password, req.body.role, avatar, id]);
+
+            // Invalidate cache for updated user
+            await delAsync(`user:${id}`);
+
+            // Fetch updated user list
             const [users] = await connection.execute('SELECT * FROM users');
-            // user.name = req.body.name ?? user.name;
-            // user.email = req.body.email ?? user.email;
-            // user.password = req.body.password ?? user.password;
-            // user.role = req.body.role ?? user.role;
+            await setAsync(`users`, 60, JSON.stringify(users));
 
             res.status(200).json({
                 success: true,
@@ -475,7 +476,7 @@ app.put('/users/:id',
                 message: "Internal Server Error"
             });
         } finally {
-            await connection.end(); // Tutup koneksi
+            await connection.end();
         }
 });
 
@@ -525,6 +526,9 @@ app.delete('/users/:id', async (req, res) => {
         }
         await connection.execute('DELETE FROM users WHERE id = ?', [id]);
         const [users] = await connection.execute('SELECT * FROM users');
+
+        // Invalidate cache for deleted user
+        await delAsync(`user:${id}`);
 
         res.status(200).json({
             success: true,
