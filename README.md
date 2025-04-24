@@ -24,62 +24,21 @@ This project touches upon various backend development concepts, including:
 
 ## Technologies Used
 
-*   **Framework:** Express.js
-*   **Database ORM:** Prisma
+*   **Framework:** `Express.js`
+*   **Database ORM:** `Prisma`
 *   **Database:** MySQL (implied by `mysql2` driver)
 *   **In-Memory Store:** Redis (`ioredis`)
-*   **Real-time Communication:** Socket.IO
+*   **Real-time Communication:** `Socket.IO`
 *   **Authentication:** JSONWebToken (`jsonwebtoken`)
 *   **Validation:** `express-validator`
-*   **Logging:** Winston, `express-winston`, `morgan`
-*   **File Uploads:** Multer
+*   **Logging:** `Winston`, `express-winston`, `morgan`
+*   **File Uploads:** `Multer`
 *   **Rate Limiting:** `express-rate-limit`
-*   **Testing:** Jest, Supertest
-*   **Development:** Nodemon
-*   **Package Manager:** pnpm
-*   **Transpiling (for Jest):** Babel (`@babel/core`, `@babel/preset-env`, `babel-jest`)
+*   **Testing:** `Jest`, `Supertest`
+*   **Development:** `Nodemon`
+*   **Package Manager:** `pnpm`
+*   **Transpiling (for Jest):** `Babel` (`@babel/core`, `@babel/preset-env`, `babel-jest`)
 *   **Other:** `cors`, `dotenv`, `prom-client`
-
-## Getting Started
-
-### Prerequisites
-
-*   Node.js (Check `package.json` for potential version constraints if any)
-*   pnpm (`npm install -g pnpm`)
-
-### Installation
-
-1.  Clone the repository (if applicable).
-2.  Navigate to the project directory.
-3.  Install dependencies:
-    ```bash
-    pnpm install
-    ```
-4.  Set up the database using Prisma:
-    ```bash
-    # Ensure your database server is running
-    # Apply migrations
-    pnpm prisma migrate dev 
-    # Or if you need to generate the client first:
-    # pnpm prisma generate 
-    ```
-
-### Running the Application
-
-*   **Development Mode (with hot-reloading):**
-    ```bash
-    pnpm run dev
-    ```
-*   **Production Mode:**
-    ```bash
-    pnpm start
-    ```
-
-### Running Tests
-
-```bash
-pnpm test
-```
 
 ## API Structure
 
