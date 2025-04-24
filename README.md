@@ -16,9 +16,10 @@ This project touches upon various backend development concepts, including:
 *   **Socket.IO:** Enabling real-time, bidirectional communication between client and server.
 *   **Input Validation:** Using `express-validator` to validate incoming request data.
 *   **Rate Limiting:** Implementing request limits using `express-rate-limit`.
-*   **Logging:** Setting up application logging with Winston and `winston-daily-rotate-file`.
-*   **Testing:** Writing unit/integration tests using Jest and Supertest.
-*   **File Uploads:** Handling file uploads using Multer.
+*   **Logging:** Setting up application logging with `Winston` and `winston-daily-rotate-file`.
+*   **Testing:** Writing unit/integration tests using `Jest` and `Supertest`.
+*   **File Uploads:** Handling file uploads using `Multer`.
+*   **API Documentation:** Generating API documentation using `swagger-jsdoc` and `swagger-ui-express`.
 *   **Environment Management:** Using `dotenv` for configuration (though noted as not strictly required for basic local running in this case).
 *   **Asynchronous Operations:** Handling async code effectively.
 
@@ -38,6 +39,7 @@ This project touches upon various backend development concepts, including:
 *   **Development:** `Nodemon`
 *   **Package Manager:** `pnpm`
 *   **Transpiling (for Jest):** `Babel` (`@babel/core`, `@babel/preset-env`, `babel-jest`)
+*   **API Documentation:** `Swagger UI` (accessible at `http://localhost:3000/api-docs`)
 *   **Other:** `cors`, `dotenv`, `prom-client`
 
 ## API Structure
@@ -51,3 +53,4 @@ The API routes are organized under `src/api/v1/routes/`. Key route modules inclu
 *   `userRoutes.js`
 
 Explore these files and the corresponding controllers in `src/controllers/` to understand the available endpoints.
+
