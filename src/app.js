@@ -3,6 +3,7 @@ import http from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import swaggerUi from 'swagger-ui-express';
 
 // --- Configurations ---
 import { corsMiddleware, corsOptions } from './config/cors.js'; // Import middleware and options
@@ -12,6 +13,7 @@ import { logger, requestLogger, errorLogger as winstonErrorLogger } from './conf
 // --- Middleware ---
 import metricsMiddleware from './middlewares/metricsMiddleware.js';
 import { handleGenericError } from './middlewares/errorMiddleware.js'; // Import only the generic handler
+import swaggerSpec from './middlewares/swagerMiddleware.js';
 
 // --- Routes ---
 import apiV1Router from './api/v1/routes/index.js';
@@ -60,6 +62,9 @@ app.get('/', (req, res) => {
     res.send('Hello, Back-end!');
 });
 
+// Setup Swagger UI
+app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+
 // --- Root HTML Route (for chat example) ---
 // Consider moving this if it's not part of the core API
 app.get('/chat', MiscController.getChatHtml);
@@ -69,7 +74,6 @@ app.get('/chat', MiscController.getChatHtml);
 app.use(winstonErrorLogger);
 // Final generic error handler
 app.use(handleGenericError);
-
 
 // --- Start Server ---
 const PORT = process.env.PORT || 3000;
